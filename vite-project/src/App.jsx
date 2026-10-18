@@ -25,7 +25,9 @@ const emptyForm = {
 export default function App() {
   // Authentication
   const [student, setStudent] = useState(null);
-  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [authLoading, setAuthLoading] = useState(
+    Boolean(isSupabaseConfigured && supabase)
+  );
   const [authError, setAuthError] = useState("");
 
   // Dashboard navigation
@@ -42,6 +44,9 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Changing this value resets the photo picker after saving.
+  const [reportFormVersion, setReportFormVersion] = useState(0);
+
   // Track login destination and account changes.
   const loginDestination = useRef("student");
   const activeUserId = useRef(null);
@@ -52,7 +57,7 @@ export default function App() {
 
   // Listen for login, logout, and restored sessions.
   useEffect(() => {
-    if (!supabase) return undefined;
+    if (!supabase || !isSupabaseConfigured) return;
 
     const {
       data: { subscription },
@@ -64,20 +69,20 @@ export default function App() {
         activeUserId.current = nextId;
         accountVersion.current += 1;
 
-        // Open the selected page after login.
         setShowAdmin(
           Boolean(nextId) && loginDestination.current === "admin"
         );
 
         loginDestination.current = "student";
 
-        // Clear data from the previous account.
+        // Clear information belonging to the previous account.
         setReports([]);
         setReportsLoading(Boolean(nextId));
         setReportsError("");
         setForm({ ...emptyForm });
         setMessage("");
         setSubmitting(false);
+        setReportFormVersion((previous) => previous + 1);
 
         savingReport.current = false;
       }
@@ -90,12 +95,20 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load the student's reports on the homepage.
+  // Load the student's reports when displaying the homepage.
   useEffect(() => {
-    if (!studentId || showAdmin) return;
+    if (!supabase || !studentId || showAdmin) return;
 
     let cancelled = false;
     const requestVersion = accountVersion.current;
+
+    function isCurrentRequest() {
+      return (
+        !cancelled &&
+        activeUserId.current === studentId &&
+        accountVersion.current === requestVersion
+      );
+    }
 
     async function loadStudentReports() {
       setReportsLoading(true);
@@ -104,29 +117,17 @@ export default function App() {
       try {
         const savedReports = await getReports(studentId);
 
-        if (
-          !cancelled &&
-          activeUserId.current === studentId &&
-          accountVersion.current === requestVersion
-        ) {
+        if (isCurrentRequest()) {
           setReports(savedReports);
         }
       } catch (error) {
-        if (
-          !cancelled &&
-          activeUserId.current === studentId &&
-          accountVersion.current === requestVersion
-        ) {
+        if (isCurrentRequest()) {
           setReportsError(
             error.message || "Could not load your reports."
           );
         }
       } finally {
-        if (
-          !cancelled &&
-          activeUserId.current === studentId &&
-          accountVersion.current === requestVersion
-        ) {
+        if (isCurrentRequest()) {
           setReportsLoading(false);
         }
       }
@@ -140,6 +141,8 @@ export default function App() {
   }, [studentId, showAdmin, reportsRefresh]);
 
   async function handleLogout() {
+    if (!supabase) return;
+
     setAuthError("");
 
     try {
@@ -147,7 +150,7 @@ export default function App() {
 
       if (error) throw error;
 
-      // The auth listener clears the account and shows Login.
+      // The authentication listener clears the account.
     } catch (error) {
       setAuthError(
         error.message || "Could not log out. Please try again."
@@ -186,10 +189,16 @@ export default function App() {
     setMessage("");
   }
 
-  async function handleSubmit(event) {
+  // Receive the optional photo from ReportForm.
+  async function handleSubmit(event, photo = null) {
     event.preventDefault();
 
-    if (!studentId || savingReport.current || reportsLoading) {
+    if (
+      !supabase ||
+      !studentId ||
+      savingReport.current ||
+      reportsLoading
+    ) {
       return;
     }
 
@@ -208,51 +217,84 @@ export default function App() {
     const submittingUserId = studentId;
     const submittingVersion = accountVersion.current;
 
+    function isCurrentSession() {
+      return (
+        activeUserId.current === submittingUserId &&
+        accountVersion.current === submittingVersion
+      );
+    }
+
     savingReport.current = true;
     setSubmitting(true);
     setMessage("");
 
     try {
+      // Upload the photo and save the report.
       const savedReport = await createReport(
         submittingUserId,
-        cleanedForm
+        cleanedForm,
+        photo
       );
 
-      if (
-        activeUserId.current !== submittingUserId ||
-        accountVersion.current !== submittingVersion
-      ) {
-        return;
-      }
+      if (!isCurrentSession()) return;
 
       setReports((previous) => [
         savedReport,
-        ...previous.filter((report) => report.id !== savedReport.id),
+        ...previous.filter(
+          (report) => report.id !== savedReport.id
+        ),
       ]);
 
+      // Reset text fields and the photo picker after success.
       setForm({ ...emptyForm });
-      setMessage("Your report has been saved successfully.");
+      setReportFormVersion((previous) => previous + 1);
+
+      setMessage(
+        savedReport.photoError
+          ? "Report saved, but its photo preview is unavailable. Refresh to try again."
+          : "Your report has been saved successfully."
+      );
     } catch (error) {
-      if (
-        activeUserId.current === submittingUserId &&
-        accountVersion.current === submittingVersion
-      ) {
+      if (isCurrentSession()) {
+        // Keep the form and photo available for retry.
         setMessage(
           error.message || "Could not save your report."
         );
       }
     } finally {
-      if (
-        activeUserId.current === submittingUserId &&
-        accountVersion.current === submittingVersion
-      ) {
+      if (isCurrentSession()) {
         savingReport.current = false;
         setSubmitting(false);
       }
     }
   }
 
-  // Check the saved authentication session first.
+  // Show a clear message instead of crashing when config is missing.
+  if (!isSupabaseConfigured || !supabase) {
+    return (
+      <main className="login-page">
+        <div className="login-card">
+          <div className="logo">
+            UNI<span>FIX</span>
+          </div>
+
+          <h1>Configuration required</h1>
+
+          <p role="alert">
+            Supabase is not configured. Add VITE_SUPABASE_URL
+            and VITE_SUPABASE_PUBLISHABLE_KEY to your environment.
+          </p>
+
+          <p>
+            For local development, restart Vite after saving
+            .env.local. For Vercel, save the variables in the
+            project settings and redeploy.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (authLoading) {
     return (
       <main className="login-page">
@@ -261,7 +303,7 @@ export default function App() {
     );
   }
 
-  // Display Student Login and Admin Login options.
+  // Student and admin login options.
   if (!student) {
     return (
       <Login
@@ -276,7 +318,7 @@ export default function App() {
     );
   }
 
-  // AdminDashboard checks whether the account has admin access.
+  // AdminDashboard checks staff membership.
   if (showAdmin) {
     return (
       <>
@@ -338,6 +380,7 @@ export default function App() {
         <HowItWorks />
 
         <ReportForm
+          key={`${student.id}-${reportFormVersion}`}
           form={form}
           message={message}
           onChange={handleChange}
