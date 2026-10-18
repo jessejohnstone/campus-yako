@@ -16,6 +16,7 @@ export default function Login({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const isAdminLogin = loginType === "admin";
 
@@ -196,18 +197,40 @@ export default function Login({
 
         <label htmlFor="login-password">Password</label>
 
-        <input
-          id="login-password"
-          name="password"
-          type="password"
-          autoComplete={isSignup ? "new-password" : "current-password"}
-          placeholder="Enter your password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          minLength={isSignup ? 8 : undefined}
-          disabled={loading}
-          required
-        />
+        <div className="password-input-wrap">
+          <input
+            id="login-password"
+            name="password"
+            type={showPassword ? "text" : "password"}
+            autoComplete={isSignup ? "new-password" : "current-password"}
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            minLength={isSignup ? 8 : undefined}
+            disabled={loading}
+            required
+          />
+
+          <button
+            type="button"
+            className="password-toggle"
+            onClick={() => setShowPassword((previous) => !previous)}
+            disabled={loading}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            title={showPassword ? "Hide password" : "Show password"}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              {showPassword ? (
+                <path d="M3 3l18 18M10.58 10.58A2 2 0 0 0 13.42 13.42M9.88 5.08A10.94 10.94 0 0 1 12 5c5.4 0 9 4.5 9 7a12.02 12.02 0 0 1-5 6.02M6.2 6.2A12.88 12.88 0 0 0 3 12c0 2.5 3.6 7 9 7 1.7 0 3.2-.3 4.6-.86" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+              ) : (
+                <>
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                  <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
 
         {isSignup && (
           <small>Use at least 8 characters for your password.</small>

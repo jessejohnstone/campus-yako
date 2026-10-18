@@ -678,6 +678,39 @@ h1 span {
   font: inherit;
 }
 
+.password-input-wrap {
+  position: relative;
+}
+
+.password-input-wrap input {
+  padding-right: 46px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: #4d5d55;
+  cursor: pointer;
+  padding: 0;
+}
+
+.password-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.password-toggle:hover {
+  color: var(--green);
+}
+
 .login-card .button {
   margin-top: 25px;
 }
