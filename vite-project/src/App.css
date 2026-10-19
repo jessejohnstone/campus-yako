@@ -951,3 +951,83 @@ button:disabled {
 .photo-upload input[hidden] {
   display: none;
 }
+.report-filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  align-items: end;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f7faf6;
+}
+
+.report-filter-field {
+  min-width: 0;
+}
+
+.report-filter-field label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-filter-field input,
+.report-filter-field select {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px;
+  border: 1px solid #d7e1d9;
+  border-radius: 8px;
+  background: white;
+  color: var(--dark);
+  font: inherit;
+  font-size: 14px;
+}
+
+.report-results-count {
+  margin-block: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.report-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.report-pagination span {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.report-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+@media (max-width: 1000px) {
+  .report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 550px) {
+  .report-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .report-pagination {
+    gap: 12px;
+  }
+
+  .report-pagination .button {
+    padding: 10px 14px;
+  }
+}

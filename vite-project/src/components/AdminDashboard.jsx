@@ -4,21 +4,23 @@ import { supabase } from "../lib/supabase";
 import { getReportPhoto } from "../lib/reports";
 
 const statuses = ["Pending", "In Progress", "Resolved"];
+const PAGE_SIZE = 6;
 
-export default function AdminDashboard({
-  student,
-  onBack,
-  onLogout,
-}) {
+export default function AdminDashboard({ student, onBack, onLogout }) {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [message, setMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
 
-  const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(1);
   const [reload, setReload] = useState(0);
 
   const savingRef = useRef(false);
@@ -38,6 +40,7 @@ export default function AdminDashboard({
     async function loadDashboard() {
       setLoading(true);
       setError("");
+      setLoadFailed(false);
       setMessage("");
       setIsAdmin(false);
       setReports([]);
@@ -47,7 +50,6 @@ export default function AdminDashboard({
           throw new Error("Supabase is not configured.");
         }
 
-        // Check whether the signed-in account is an admin.
         const { data: membership, error: membershipError } =
           await supabase
             .from("admin_users")
@@ -56,13 +58,10 @@ export default function AdminDashboard({
             .maybeSingle();
 
         if (membershipError) throw membershipError;
-        if (cancelled) return;
-
-        if (!membership) return;
+        if (cancelled || !membership) return;
 
         setIsAdmin(true);
 
-        // Include the stored image path.
         const { data, error: reportsError } = await supabase
           .from("reports")
           .select(
@@ -73,16 +72,11 @@ export default function AdminDashboard({
         if (reportsError) throw reportsError;
         if (cancelled) return;
 
-        // Generate temporary viewing links for private images.
         const reportsWithPhotos = await Promise.all(
-          data.map(async (report) => {
-            const photo = await getReportPhoto(report.photo_path);
-
-            return {
-              ...report,
-              ...photo,
-            };
-          })
+          data.map(async (report) => ({
+            ...report,
+            ...(await getReportPhoto(report.photo_path)),
+          }))
         );
 
         if (!cancelled) {
@@ -90,9 +84,8 @@ export default function AdminDashboard({
         }
       } catch (error) {
         if (!cancelled) {
-          setError(
-            error.message || "Could not load the dashboard."
-          );
+          setLoadFailed(true);
+          setError(error.message || "Could not load the dashboard.");
         }
       } finally {
         if (!cancelled) {
@@ -145,9 +138,7 @@ export default function AdminDashboard({
       setMessage("Report status updated successfully.");
     } catch (error) {
       if (mountedRef.current) {
-        setError(
-          error.message || "Could not update the report."
-        );
+        setError(error.message || "Could not update the report.");
       }
     } finally {
       savingRef.current = false;
@@ -172,15 +163,69 @@ export default function AdminDashboard({
               ...report,
               photoUrl: null,
               photoError:
-                "Photo could not load. Click Refresh Reports to try again.",
+                "Photo unavailable. Click Refresh Reports to try again.",
             }
           : report
       )
     );
   }
 
-  const visibleReports = reports.filter(
-    (report) => filter === "All" || report.status === filter
+  function changeFilter(setter, value) {
+    setter(value);
+    setPage(1);
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setStatusFilter("All");
+    setCategoryFilter("All");
+    setSort("newest");
+    setPage(1);
+  }
+
+  const categoryOptions = [
+    ...new Set(reports.map((report) => report.category)),
+  ].filter(Boolean).sort();
+
+  const query = search.trim().toLowerCase();
+
+  const filteredReports = reports
+    .filter((report) => {
+      const text = [
+        report.title,
+        report.description,
+        report.location,
+        report.category,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        text.includes(query) &&
+        (statusFilter === "All" || report.status === statusFilter) &&
+        (categoryFilter === "All" ||
+          report.category === categoryFilter)
+      );
+    })
+    .sort((first, second) => {
+      const difference =
+        new Date(second.created_at).getTime() -
+        new Date(first.created_at).getTime();
+
+      return sort === "newest" ? difference : -difference;
+    });
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredReports.length / PAGE_SIZE)
+  );
+
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+
+  const visibleReports = filteredReports.slice(
+    startIndex,
+    startIndex + PAGE_SIZE
   );
 
   return (
@@ -188,7 +233,6 @@ export default function AdminDashboard({
       <div className="admin-toolbar">
         <div>
           <span className="eyebrow">UNIFIX STAFF AREA</span>
-
           <h1 className="admin-title">Admin Dashboard</h1>
         </div>
 
@@ -222,10 +266,8 @@ export default function AdminDashboard({
       )}
 
       {loading ? (
-        <p role="status">
-          Checking access and loading reports...
-        </p>
-      ) : error && !isAdmin ? (
+        <p role="status">Checking access and loading reports...</p>
+      ) : loadFailed ? (
         <button
           type="button"
           className="button"
@@ -236,7 +278,6 @@ export default function AdminDashboard({
       ) : !isAdmin ? (
         <div className="empty-state">
           <h2>Staff access required</h2>
-
           <p>Your account has not been assigned admin access.</p>
         </div>
       ) : (
@@ -244,10 +285,7 @@ export default function AdminDashboard({
           <div className="admin-stats">
             {["All", ...statuses].map((status) => (
               <div className="saved-report" key={status}>
-                <p>
-                  {status === "All" ? "Total Reports" : status}
-                </p>
-
+                <p>{status === "All" ? "Total Reports" : status}</p>
                 <strong>
                   {status === "All"
                     ? reports.length
@@ -259,26 +297,87 @@ export default function AdminDashboard({
             ))}
           </div>
 
-          <div className="admin-toolbar">
-            <div>
-              <label htmlFor="status-filter">
-                Filter by status:{" "}
-              </label>
-
-              <select
-                id="status-filter"
-                value={filter}
+          <div className="report-filters">
+            <div className="report-filter-field">
+              <label htmlFor="admin-search">Search reports</label>
+              <input
+                id="admin-search"
+                type="search"
+                placeholder="Search title, location, or description..."
+                value={search}
                 onChange={(event) =>
-                  setFilter(event.target.value)
+                  changeFilter(setSearch, event.target.value)
+                }
+              />
+            </div>
+
+            <div className="report-filter-field">
+              <label htmlFor="admin-category">Category</label>
+              <select
+                id="admin-category"
+                value={categoryFilter}
+                onChange={(event) =>
+                  changeFilter(setCategoryFilter, event.target.value)
                 }
               >
-                {["All", ...statuses].map((status) => (
+                <option value="All">All categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="report-filter-field">
+              <label htmlFor="admin-status">Status</label>
+              <select
+                id="admin-status"
+                value={statusFilter}
+                onChange={(event) =>
+                  changeFilter(setStatusFilter, event.target.value)
+                }
+              >
+                <option value="All">All statuses</option>
+                {statuses.map((status) => (
                   <option key={status} value={status}>
                     {status}
                   </option>
                 ))}
               </select>
             </div>
+
+            <div className="report-filter-field">
+              <label htmlFor="admin-sort">Sort by</label>
+              <select
+                id="admin-sort"
+                value={sort}
+                onChange={(event) =>
+                  changeFilter(setSort, event.target.value)
+                }
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              className="button button-outline"
+              onClick={resetFilters}
+            >
+              Reset
+            </button>
+          </div>
+
+          <div className="admin-toolbar admin-results-toolbar">
+            <p className="report-results-count" role="status">
+              {filteredReports.length === 0
+                ? "No matching reports."
+                : `Showing ${startIndex + 1}–${
+                    startIndex + visibleReports.length
+                  } of ${filteredReports.length} matching reports`}
+            </p>
 
             <button
               type="button"
@@ -292,104 +391,138 @@ export default function AdminDashboard({
 
           {visibleReports.length === 0 ? (
             <div className="empty-state">
+              <h3>
+                {reports.length === 0
+                  ? "No reports yet"
+                  : "No matching reports"}
+              </h3>
+
               <p>
-                {error
-                  ? "Reports could not be loaded. Click Refresh Reports to retry."
-                  : "No reports match this filter."}
+                {reports.length === 0
+                  ? "Submitted student reports will appear here."
+                  : "Try another search or clear your filters."}
               </p>
+
+              {reports.length > 0 && (
+                <button
+                  type="button"
+                  className="button button-outline"
+                  onClick={resetFilters}
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
           ) : (
-            <div className="reports-grid">
-              {visibleReports.map((report) => (
-                <article
-                  className="saved-report"
-                  key={report.id}
-                >
-                  <div className="report-top">
-                    <span className="report-category">
-                      {report.category}
-                    </span>
+            <>
+              <div className="reports-grid">
+                {visibleReports.map((report) => (
+                  <article className="saved-report" key={report.id}>
+                    <div className="report-top">
+                      <span className="report-category">
+                        {report.category}
+                      </span>
+                      <span className="status">{report.status}</span>
+                    </div>
 
-                    <span className="status">
-                      {report.status}
-                    </span>
-                  </div>
+                    <h3>{report.title}</h3>
+                    <p>{report.description}</p>
 
-                  <h3>{report.title}</h3>
+                    {report.photoUrl && (
+                      <figure className="admin-report-photo">
+                        <a
+                          href={report.photoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open attached photo for ${report.title}`}
+                        >
+                          <img
+                            className="report-photo"
+                            src={report.photoUrl}
+                            alt={`Attached photo for ${report.title}`}
+                            loading="lazy"
+                            onError={() => handlePhotoError(report.id)}
+                          />
+                        </a>
 
-                  <p>{report.description}</p>
-
-                  {report.photoUrl && (
-                    <figure className="admin-report-photo">
-                      <a
-                        href={report.photoUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Open attached photo for ${report.title}`}
-                      >
-                        <img
-                          className="report-photo"
-                          src={report.photoUrl}
-                          alt={`Attached photo for ${report.title}`}
-                          loading="lazy"
-                          onError={() =>
-                            handlePhotoError(report.id)
-                          }
-                        />
-                      </a>
-
-                      <figcaption>
-                        Click the photo to open the full image.
-                      </figcaption>
-                    </figure>
-                  )}
-
-                  {report.photoError && (
-                    <p className="photo-error" role="status">
-                      {report.photoError}
-                    </p>
-                  )}
-
-                  <div className="report-meta">
-                    <span>📍 {report.location}</span>
-
-                    <time dateTime={report.created_at}>
-                      {new Date(
-                        report.created_at
-                      ).toLocaleDateString()}
-                    </time>
-                  </div>
-
-                  <div className="admin-status-control">
-                    <label htmlFor={`status-${report.id}`}>
-                      Update status
-                    </label>
-
-                    <select
-                      id={`status-${report.id}`}
-                      value={report.status}
-                      disabled={Boolean(savingId)}
-                      onChange={(event) =>
-                        updateStatus(
-                          report.id,
-                          event.target.value
-                        )
-                      }
-                    >
-                      {statuses.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-
-                    {savingId === report.id && (
-                      <small role="status">Saving...</small>
+                        <figcaption>
+                          Click the photo to open the full image.
+                        </figcaption>
+                      </figure>
                     )}
-                  </div>
-                </article>
-              ))}
-            </div>
+
+                    {report.photoError && (
+                      <p className="photo-error" role="status">
+                        {report.photoError}
+                      </p>
+                    )}
+
+                    <div className="report-meta">
+                      <span>📍 {report.location}</span>
+                      <time dateTime={report.created_at}>
+                        {new Date(
+                          report.created_at
+                        ).toLocaleDateString()}
+                      </time>
+                    </div>
+
+                    <div className="admin-status-control">
+                      <label htmlFor={`status-${report.id}`}>
+                        Update status
+                      </label>
+
+                      <select
+                        id={`status-${report.id}`}
+                        value={report.status}
+                        disabled={Boolean(savingId)}
+                        onChange={(event) =>
+                          updateStatus(report.id, event.target.value)
+                        }
+                      >
+                        {statuses.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+
+                      {savingId === report.id && (
+                        <small role="status">Saving...</small>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <nav
+                  className="report-pagination"
+                  aria-label="Admin report pages"
+                >
+                  <button
+                    type="button"
+                    className="button button-outline"
+                    disabled={currentPage === 1}
+                    onClick={() => setPage(currentPage - 1)}
+                  >
+                    ← Previous
+                  </button>
+
+                  <span aria-live="polite">
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="button button-outline"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setPage(currentPage + 1)}
+                  >
+                    Next →
+                  </button>
+                </nav>
+              )}
+            </>
           )}
         </>
       )}
